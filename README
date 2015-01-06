@@ -1,0 +1,264 @@
+Allocation Utilities
+====================
+This is a C library containing several utilities for dealing with dynamic
+memory allocation. It contains:
+
+  - Arena Allocator
+  - Stack Allocator
+  - Fixed Size Block Allocator
+  - Arena Bytes Allocator
+  - Stack Bytes Allocator
+
+For each of the allocators, there will be a version in which you provide
+the memory on which it'll work and another version in which it'll try to
+come up with its own memory (using malloc for example). The ones which
+operate on your given memory are called bounded allocators. The other ones
+self manage, so they're called self managed allocators.
+
+Arena Allocators (AA)
+=====================
+An arena allocator is one in which you allocate heterogeneous (sized) blocks
+of memory as you go, and deallocation can only be done all at once.
+
+Several algorithms work like this:
+
+  - They start running, making several accumulative allocations that pile up
+  into a coherent data structure. Allocations might be of different kinds of
+  structs, strings, arrays of all sorts, and so forth.
+  - They go through the data structure to compute the result.
+  - They have no more need for the data structure.
+
+Using an arena allocator, in the case above, you'd only need one deallocation
+at the end plus several at the beginning. This is kind of case in which arena
+allocators succeed.
+
+If you have a good estimation of how much memory you'll be using, the number of
+malloc calls you make can be reduced to one, maybe two or three. If you don't
+want to estimate anything, the number of calls to malloc can be approximately
+log(base=2,M) where M is the amount of bytes you need in total. Also, even
+though you'll only do one deallocation at the end, this deallocation will turn
+into one or more calls to free. There are as many calls to free as there are
+to malloc.
+
+If you're using a bounded version of an arena allocator, there is no growing.
+If you hit a limit, you get null back. There is no deallocation call either.
+
+There is a special version of arena allocators which operate on bytes. This is
+so that you can have an arena allocator which doesn't care about alignment.
+
+Stack Allocators (SA)
+=====================
+A stack allocator is one in which you allocate heterogeneous (sized) blocks of
+memory as you go. Deallocation can be done by releasing the last N allocated
+blocks.
+
+As with arena allocators, there are byte versions of it, and also bounded
+versions of it.
+
+Fixed Size Allocators (FSA)
+===========================
+The two allocators above don't deal with fragmentation of the address space
+they're using. A fixed size allocator does.
+
+A fixed size allocator doesn't allow for heterogeneous sized allocations. All
+allocations have to be of the same size. An allocated block can be freed.
+
+As with other allocators, there is a bounded version of it. This library
+doesn't attempt to provide a fixed syze byte allocator.
+
+Byte Allocators
+===============
+There are allocators above that operate on a byte level, like a byte stack
+allocator. These allocators aren't meant to be general purpose memory
+allocators (although you can make them be so if you're willing to go through
+the effort). Their intended usage is for byte strings.
+
+Since they operate on a byte level, they don't worry about alignment issues
+narely as much as the other kinds of allocators.
+
+Builders
+========
+There are cases in which you want to build something which you're not aware of
+the size. For example, imagine you're reading a file and you want to build a
+sequence of lines. Some files can have extremely large lines (imagine an html
+source file, or a minified JS source file), while in others lines are pretty
+much bounded to a fixed upper limit (this file for example). It'd be
+interesting if you could use something like fgets to read as much N chars and
+incrementally build the line:
+
+  LineBuilder l;
+  char buf[80];
+  setup l
+  open l for append
+  do {
+    read with fgets into buf;
+    append buf into l
+  } while (not end of line);
+  close l
+  char *line = chars(l);
+  ...
+  ...
+  ...
+  free(l);
+
+That's the idea behind builder types.
+
+There are byte builders and fixed size builders. Given a builder, basically
+these are the operations you can do to it:
+
+  - Setup
+  - Append
+  - AppendForSetup
+  - GetMemory
+  - DiscardAppends
+
+Once you set asside some memory for the builder (a local variable for example),
+you have to call Setup on it.
+
+After setting up a builder, it's  appendable. Now you can make append calls
+copy elements into it. There are two kinds of append calls. A simple Append
+call will take some bytes and copy them into the underlying builder storage.
+However, in some cases, you'll need to do your own setup on the underlying
+memory (a simple copy won't do). In such cases, call AppendForSetup. Such call
+will return you the underlying store for the appended element(s) so you can do
+your own setup on them.
+
+The thing to be cautious about with AppendForSetup is that at each append, the
+base address of the underlying memory for the builder may change (very much
+like with calls to realloc), and you should take that into account while coding
+your own programs using builder types.
+
+  - Append: get some elements, copy them into the underlying store, expanding
+  it if needed.
+  - AppendForSetup: get a size value, adjust the underlying store to fit the
+  given amount of bytes, expanding if needed, and return the underlying store
+  so you can work on it. No copy is done.
+
+Once you're done appending elements, you can confidently get the underlying
+memory and use however you'd like. To do so, make a GetMemory call. You can
+still make append calls after getting the underlying memory. This is useful if
+you want to increment the build later. All you need to remember is that the
+address you had for the base address can be invalidated at each append call,
+which means you'll have to call GetMemory again at each "append session".
+
+The builder won't free the underlying memory for you. You're the one
+responsible for calling free on the underlying memory. After you're fully done
+with appends you can actually get rid of the builder and only keep the
+underlying base address.
+
+You can also recycle the builder. There are two ways you can do that.
+
+The first way is by a call to DiscardAppends. This will tell the builder that
+its underlying base memory is now unused. Calls to append from now on will
+reuse all the space previously allocated for the older appends.
+
+Another way is by simply getting the underlying base pointer and store it
+somewhere else and calling setup on the buffer again. A call to setup will
+assume the builder fields are uninitialized and will give you a fresh setup for
+the builder without interfering with the older underlying memory.
+
+This library makes no attempt to make bounded builders. There are though:
+
+  - Byte Builders
+  - Fixed Size Builders
+  - Variable Size Builders
+
+The difference between a byte builder and a variable size builder is mostly
+that a VSB will make conservative alignment assumptions, while byte builders
+will do byte alignment.
+
+For byte builders and fixed size builders, there is a special discard appends
+call which discards only the last N entries.
+
+Malloc Configuration
+====================
+You can configure which malloc/free/calloc/realloc to use in the ProvMalloc.h
+file.
+
+Names
+=====
+All names are prefixed with AU (allocation utilities). Names for operations on
+particular kinds of allocators have yet another prefix.
+
+  AU_SA_Setup
+  AU_BSA_Setup
+  AU_SA1_Setup
+  AU_BSA1_Setup
+  AU_AA_Setup
+  AU_BAA_Setup
+  AU_AA1_Setup
+  AU_BAA1_Setup
+  AU_FSA_Setup
+  AU_BFSA_Setup
+  AU_B1_Setup
+  AU_FSB_Setup
+  AU_VSB_Setup
+
+  AU_SA_Alloc
+  AU_SA_Destroy
+  AU_SA1_Alloc
+  AU_SA1_Destroy
+  AU_BSA_Alloc
+  AU_BSA1_Alloc
+
+  AU_AA_Alloc
+  AU_AA_Destroy
+  AU_AA1_Alloc
+  AU_AA1_Destroy
+  AU_BAA_Alloc
+  AU_BAA1_Alloc
+
+  AU_FSA_Alloc
+  AU_FSA_Free
+  AU_FSA_Destroy
+  AU_BFSA_Alloc
+  AU_BFSA_Free
+
+  AU_B1_Append
+  AU_B1_AppendForSetup
+  AU_B1_GetMemory
+  AU_B1_DiscardAppends
+  AU_B1_DiscardBackAppends
+
+  AU_VSB_Append
+  AU_VSB_AppendForSetup
+  AU_VSB_GetMemory
+  AU_VSB_DiscardAppends
+
+  AU_FSB_Append
+  AU_FSB_AppendForSetup
+  AU_FSB_GetMemory
+  AU_FSB_DiscardAppends
+  AU_FSB_DiscardBackAppends
+
+A difference between bounded allocators and unbounded ones surfaces here. There
+aren't procedures to destroy a bounded allocator. This is because a bounded
+allocator will operate entirely within its given memory. On its own, this is
+enough for not needing a destruction procedure here.
+
+To be clear, procedures 'free' release memory that is managed by the allocator.
+Procedures 'destroy' destroy the allocator. If you've allocated the allocator
+with a call to malloc on your own then you should of course free it yourself.
+The allocator destroy functions will only release memory they allocated
+themselves.
+
+Opaqueness
+==========
+Allocatores aren't opaque types strictly speaking. You *do* have access to the
+struct declaration. However, you're not supposed to access the fields diretly.
+Every allocator manipulation should be done through a function call or macro
+application.
+
+The reason why the types aren't fully opaque types is just so you can declare
+variables of allocator types with automatic and also with static storage
+duration.
+
+Thread Safety and Reentrancy
+============================
+If the provided malloc/free/calloc/realloc aren't thread safe, two concurrent
+AU_* calls won't be data race free. However, if thread safety is provided in
+the underlying malloc/.../ralloc functions, then you can call this library's
+functions on different instances (which is what would be intuitively expected
+in my opinion).
+
+Reentrancy only depends on the reentrancy of the provided allocation functions.
