@@ -163,16 +163,89 @@ This library makes no attempt to make bounded builders. There are though:
   - Fixed Size Builders
   - Variable Size Builders
 
+For byte builders and fixed size builders, there is a special 'discard appends'
+call which discards only the last N entries.
+
+Variable Size Builders
+======================
+Variable size builders are considerably different from the other builder
+types that I think it deserves some attention.
+
 The difference between a byte builder and a variable size builder is mostly
 that a VSB will make conservative alignment assumptions, while byte builders
-will do byte alignment.
+will do byte alignment. This makes a VSB a poor choice for small elements in
+terms of memory consumption. For example, if VSB uses 16 byte alignment, and
+you need to add a bunch of shorts, ints and longs to it, you'd be using at
+most half the memory, assuming longs are 8 bytes. A VSB is a better choice for
+when you have larger objects.
 
-For byte builders and fixed size builders, there is a special discard appends
-call which discards only the last N entries.
+One case for using VSB could be that you have to build a structure which puts
+together time (struct tm) objects, and texts based off what you read from your
+input source:
+
+  - You would need space for struct tm objects.
+  - You would need space for text strings.
+  - You would need space for the struct binding the date/text pair.
+
+This could be a good situation to use a VSB. However, VSB don't work well with
+incrementally building text. If you check the append function for a VSB, you'll
+see this:
+
+  int
+  AU_VSB_Append(AU_VarSizeBuilder *vsb,
+                void *mem,
+                size_t n,
+                size_t *offset);
+
+You give it a VSB, the memory, the number of bytes and a pointer to a size_t,
+and it'll append the data into the builder for you. However, where did it go?
+For byte builders, you also get the result this way. However, for BBs, you
+know that the first byte of a second append comes right after the last byte of
+the previous append (although this fact wasn't mentioned before, it's part of
+the API). For VSB that doesn't hold. So if you plan to incrementally build
+strings using a VSB, you're out of luck because your strings will almost
+certainly have gaps (possibly containing a zero byte in there) between them.
+
+So the example above is only reliable if you can avoid incrementally building
+the string.
+
+The alignment choices made by VSB are hardcoded internally in the library. If
+you want different alignment options, you would need to build your own builder
+on top of a byte builder.
+
+The thing to remember about VSB is how consecutive appends may leave gaps in
+the underlying memory block. The gaps are pretty small if you have large
+structs, but they can still be significant in other cases.
+
+The computation of which is the alignment size to be used is done by looking
+at sizes of fundamental types in the language:
+
+  union AlignmentType {
+    int i;
+    long l;
+    long long ll;
+    void *vp;
+    void (*funp)(void);
+    float f;
+    double d;
+    long double ld;
+    float *fp;
+    double *dp;
+    long double *ldp;
+  };
+
+  enum {
+    ALIGNMENT_BOUNDARY = sizeof (union AlignmentType)
+  };
+
+Although this code isn't part of the header, it's something like this that is
+used internally by the library to figure out the alignment boundary a VSB will
+use. This idea came from the "C Interfaces and Implementations" book, which
+suggest something similar.
 
 Malloc Configuration
 ====================
-You can configure which malloc/free/calloc/realloc to use in the ProvMalloc.h
+You can configure which malloc/free/calloc/realloc to use in the XMalloc.h
 file.
 
 Names
@@ -218,7 +291,7 @@ particular kinds of allocators have yet another prefix.
   AU_B1_AppendForSetup
   AU_B1_GetMemory
   AU_B1_DiscardAppends
-  AU_B1_DiscardBackAppends
+  AU_B1_DiscardLastBytes
 
   AU_VSB_Append
   AU_VSB_AppendForSetup
@@ -229,7 +302,7 @@ particular kinds of allocators have yet another prefix.
   AU_FSB_AppendForSetup
   AU_FSB_GetMemory
   AU_FSB_DiscardAppends
-  AU_FSB_DiscardBackAppends
+  AU_FSB_DiscardLastAppends
 
 A difference between bounded allocators and unbounded ones surfaces here. There
 aren't procedures to destroy a bounded allocator. This is because a bounded
@@ -253,6 +326,9 @@ The reason why the types aren't fully opaque types is just so you can declare
 variables of allocator types with automatic and also with static storage
 duration.
 
+This is the reason why the types aren't accessible directly as struct tags, and
+are only so indirectly through typedefs.
+
 Thread Safety and Reentrancy
 ============================
 If the provided malloc/free/calloc/realloc aren't thread safe, two concurrent
@@ -262,3 +338,27 @@ functions on different instances (which is what would be intuitively expected
 in my opinion).
 
 Reentrancy only depends on the reentrancy of the provided allocation functions.
+
+Errors Values
+=============
+Throughout the library, functions which can error return negative values on
+error conditions and 0 on success.
+
+Debug Options
+=============
+On debug mode (NDEBUG isn't defined), several assertions will be turned on.
+They will check for:
+
+  - null parameters
+  - overflow
+
+When they're turned off, several properties will just be assumed to be true.
+For example, that you won't pass null parameters or that you won't pass two
+numbers that need to be multiplied and will overflow if done so.
+
+Some sizes are outside of your control, so you can't and won't be held
+responsible for checking overflow on those values. For example, when appending
+bytes on a byte builder, you don't have access to the underlying capacity. So
+you don't know if adding it to the size for a next append will overflow or
+not. Thus, in this case (and others like it), the library will return an error
+code.
