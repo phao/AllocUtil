@@ -3,48 +3,11 @@ Allocation Utilities
 This is a C library containing several utilities for dealing with dynamic
 memory allocation. It contains:
 
-  - Arena Allocator
   - Stack Allocator
-  - Fixed Size Block Allocator
-  - Arena Bytes Allocator
-  - Stack Bytes Allocator
-
-For each of the allocators, there will be a version in which you provide
-the memory on which it'll work and another version in which it'll try to
-come up with its own memory (using malloc for example). The ones which
-operate on your given memory are called bounded allocators. The other ones
-self manage, so they're called self managed allocators.
-
-Arena Allocators (AA)
-=====================
-An arena allocator is one in which you allocate heterogeneous (sized) blocks
-of memory as you go, and deallocation can only be done all at once.
-
-Several algorithms work like this:
-
-  - They start running, making several accumulative allocations that pile up
-  into a coherent data structure. Allocations might be of different kinds of
-  structs, strings, arrays of all sorts, and so forth.
-  - They go through the data structure to compute the result.
-  - They have no more need for the data structure.
-
-Using an arena allocator, in the case above, you'd only need one deallocation
-at the end plus several at the beginning. This is kind of case in which arena
-allocators succeed.
-
-If you have a good estimation of how much memory you'll be using, the number of
-malloc calls you make can be reduced to one, maybe two or three. If you don't
-want to estimate anything, the number of calls to malloc can be approximately
-log(base=2,M) where M is the amount of bytes you need in total. Also, even
-though you'll only do one deallocation at the end, this deallocation will turn
-into one or more calls to free. There are as many calls to free as there are
-to malloc.
-
-If you're using a bounded version of an arena allocator, there is no growing.
-If you hit a limit, you get null back. There is no deallocation call either.
-
-There is a special version of arena allocators which operate on bytes. This is
-so that you can have an arena allocator which doesn't care about alignment.
+  - Fixed Size Allocator
+  - Byte Builder
+  - Fixed Size Builder
+  - Variable Size Builder
 
 Stack Allocators (SA)
 =====================
@@ -52,29 +15,34 @@ A stack allocator is one in which you allocate heterogeneous (sized) blocks of
 memory as you go. Deallocation can be done by releasing the last N allocated
 blocks.
 
-As with arena allocators, there are byte versions of it, and also bounded
-versions of it.
+A byte stack allocator is tailored to allocate/deallocate bytes. And as such
+byte alignment will be used. By default, a stack allocator will be very
+conservative about the alignment to use.
+
+A bounded stack allocator works with given memory instead of trying to allocate
+its own through malloc/realloc calls. There are bounded byte stack allocators
+as well, which are for when you want byte alignment and bounded stack
+allocation.
+
+When you give the bounded stack allocator memory for it to work on, it'll
+assume the memory is aligned. To help you with that, check AU_Align and
+AU_SizeAlign.
+
+If you're interested in a fixed size stack allocator, check the fixed size
+builder. It can be used as such.
 
 Fixed Size Allocators (FSA)
 ===========================
-The two allocators above don't deal with fragmentation of the address space
-they're using. A fixed size allocator does.
+The stack allocators and the builders (mentioned later) don't deal with
+fragmentation of the address space they're using. A fixed size allocator does.
 
 A fixed size allocator doesn't allow for heterogeneous sized allocations. All
-allocations have to be of the same size. An allocated block can be freed.
+allocations have to be of the same size. What distinguises a FSA from the
+others is that *any* allocated block can be freed. Not just the last N bytes,
+or last N blocks, or the whole thing.
 
 As with other allocators, there is a bounded version of it. This library
 doesn't attempt to provide a fixed syze byte allocator.
-
-Byte Allocators
-===============
-There are allocators above that operate on a byte level, like a byte stack
-allocator. These allocators aren't meant to be general purpose memory
-allocators (although you can make them be so if you're willing to go through
-the effort). Their intended usage is for byte strings.
-
-Since they operate on a byte level, they don't worry about alignment issues
-narely as much as the other kinds of allocators.
 
 Builders
 ========
@@ -188,23 +156,10 @@ input source:
   - You would need space for the struct binding the date/text pair.
 
 This could be a good situation to use a VSB. However, VSB don't work well with
-incrementally building text. If you check the append function for a VSB, you'll
-see this:
-
-  int
-  AU_VSB_Append(AU_VarSizeBuilder *vsb,
-                void *mem,
-                size_t n,
-                size_t *offset);
-
-You give it a VSB, the memory, the number of bytes and a pointer to a size_t,
-and it'll append the data into the builder for you. However, where did it go?
-For byte builders, you also get the result this way. However, for BBs, you
-know that the first byte of a second append comes right after the last byte of
-the previous append (although this fact wasn't mentioned before, it's part of
-the API). For VSB that doesn't hold. So if you plan to incrementally build
-strings using a VSB, you're out of luck because your strings will almost
-certainly have gaps (possibly containing a zero byte in there) between them.
+incrementally building text. If you plan to incrementally build strings using a
+VSB, you're out of luck because your strings will almost certainly have gaps
+(possibly containing a zero byte in there) between them. This is because of the
+conservative alignment assumptions VSB has to work with.
 
 So the example above is only reliable if you can avoid incrementally building
 the string.
@@ -243,10 +198,22 @@ used internally by the library to figure out the alignment boundary a VSB will
 use. This idea came from the "C Interfaces and Implementations" book, which
 suggest something similar.
 
-Malloc Configuration
-====================
+Byte Allocators
+===============
+There are allocators above that operate on a byte level, like a byte stack
+allocator. These allocators aren't meant to be general purpose memory
+allocators (although you can make them be so if you're willing to go through
+the effort). Their intended usage is for byte strings.
+
+Since they operate on a byte level, they don't worry about alignment issues
+narely as much as the other kinds of allocators.
+
+Malloc Configuration and Errors
+===============================
 You can configure which malloc/free/calloc/realloc to use in the XMalloc.h
 file.
+
+!!! TALK ABOUT ERRORS !!!
 
 Names
 =====
@@ -254,50 +221,46 @@ All names are prefixed with AU (allocation utilities). Names for operations on
 particular kinds of allocators have yet another prefix.
 
   AU_SA_Setup
-  AU_BSA_Setup
-  AU_SA1_Setup
-  AU_BSA1_Setup
-  AU_AA_Setup
-  AU_BAA_Setup
-  AU_AA1_Setup
-  AU_BAA1_Setup
-  AU_FSA_Setup
-  AU_BFSA_Setup
-  AU_B1_Setup
-  AU_FSB_Setup
-  AU_VSB_Setup
-
   AU_SA_Alloc
+  AU_SA_Free
   AU_SA_Destroy
+
+  AU_SA1_Setup
   AU_SA1_Alloc
+  AU_SA1_Free
   AU_SA1_Destroy
+
+  AU_BSA_Setup
   AU_BSA_Alloc
+  AU_BSA_Free
+
+  AU_BSA1_Setup
   AU_BSA1_Alloc
+  AU_BSA1_Free
 
-  AU_AA_Alloc
-  AU_AA_Destroy
-  AU_AA1_Alloc
-  AU_AA1_Destroy
-  AU_BAA_Alloc
-  AU_BAA1_Alloc
-
+  AU_FSA_Setup
   AU_FSA_Alloc
   AU_FSA_Free
   AU_FSA_Destroy
+
+  AU_BFSA_Setup
   AU_BFSA_Alloc
   AU_BFSA_Free
 
+  AU_B1_Setup
   AU_B1_Append
   AU_B1_AppendForSetup
   AU_B1_GetMemory
   AU_B1_DiscardAppends
   AU_B1_DiscardLastBytes
 
+  AU_VSB_Setup
   AU_VSB_Append
   AU_VSB_AppendForSetup
   AU_VSB_GetMemory
   AU_VSB_DiscardAppends
 
+  AU_FSB_Setup
   AU_FSB_Append
   AU_FSB_AppendForSetup
   AU_FSB_GetMemory

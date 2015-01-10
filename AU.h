@@ -29,7 +29,7 @@ enum {
 
 struct AU_ByteBuilder {
   void *mem;
-  size_t used, cap;
+  long used, cap;
 };
 
 typedef struct AU_ByteBuilder AU_ByteBuilder;
@@ -40,47 +40,40 @@ typedef struct AU_ByteBuilder AU_ByteBuilder;
  * @return 0 on succes, a negative value on failure.
  */
 int
-AU_B1_Setup(AU_ByteBuilder *b1, size_t cap);
+AU_B1_Setup(AU_ByteBuilder *b1, long cap);
 
 /**
  * @param b1 Must be non null properly set up byte builder.
  * @param mem Must be non null address.
  * @param size Positive integer telling how many bytes are in mem. If 0,
  * this operation is basically a no-op.
- * @param out_offset If not null, it'll be used to store the resulting offset
- * from the base address where those bytes went.
  *
- * @return 0 on succes, a negative value on failure.
+ * @return Offset off the base address on success, a negative value error code
+ * on failure.
  *
  * @note The bytes of an append will start right after the last byte of a
  * previous attempt. There won't be gaps in between appends.
  */
-int
-AU_B1_Append(AU_ByteBuilder *b1,
-             const void *mem,
-             size_t size,
-             size_t *out_offset);
+long
+AU_B1_Append(AU_ByteBuilder *b1, const void *mem, long size);
 
 /**
  * @param b1 Must be non null properly set up byte builder.
  * @param size Positive integer telling how many bytes are in mem. If 0,
  * this operation is basically a no-op.
- * @param out_addr Must be a non null void** telling where to put the address
- * which you can then use to set up the bytes. If n is 0, *out_addr is left
- * as it was.
- * @param out_offset If not null, it'll be used to store the resulting offset
- * from the base address where those bytes went.
  *
- * @return 0 on succes, a negative value on failure.
+ * @return Pointer to the memory that you can set up. Null on error.
  *
  * @note The bytes of an append will start right after the last byte of a
  * previous attempt. There won't be gaps in between appends.
+ *
+ * @note To get the offset, if you're interested, all you need to do is
+ * subtract against the base memory address which you get with
+ * AU_B1_GetMemory(b1). You should cast the void* results to char* so you
+ * have byte offsets.
  */
-int
-AU_B1_AppendForSetup(AU_ByteBuilder *b1,
-                     size_t size,
-                     void **out_addr,
-                     size_t *out_offset);
+void*
+AU_B1_AppendForSetup(AU_ByteBuilder *b1, long size);
 
 /**
  * @param b1 Must be a non null properly set up byte builder.
@@ -104,7 +97,7 @@ AU_B1_DiscardAppends(AU_ByteBuilder *b1);
  * error to pass a larger number than that.
  */
 void
-AU_B1_DiscardLastBytes(AU_ByteBuilder *b1, size_t n);
+AU_B1_DiscardLastBytes(AU_ByteBuilder *b1, long n);
 
 ////////////////////////////
 //// Fixed Size Builder ////
@@ -112,7 +105,7 @@ AU_B1_DiscardLastBytes(AU_ByteBuilder *b1, size_t n);
 
 struct AU_FixedSizeBuilder {
   AU_ByteBuilder b1;
-  size_t elt_size;
+  long elt_size;
 };
 
 /**
@@ -142,28 +135,25 @@ typedef struct AU_FixedSizeBuilder AU_FixedSizeBuilder;
  * @return 0 on succes, a negative value on failure.
  */
 int
-AU_FSB_Setup(AU_FixedSizeBuilder *fsb, size_t elt_size, size_t cap);
+AU_FSB_Setup(AU_FixedSizeBuilder *fsb, long elt_size, long cap);
 
 /**
  * Append n elements (of size specified in the setup of the given fsb) into
  * the underlying memory of the given fsb.
  *
  * @param fsb Pointer to a properly setup fixed size builder.
+ *
  * @param mem A non-null pointer to the first byte in the byte sequence for
  * all the n elements.
+ *
  * @param n How many elements to append. This value can be 0, in which case
  * a call to this function would be just "an expensive no-op".
- * @param out_offset If not null, this will be put the offset (in terms of
- * the element size for this FSB) where the first byte mem points to was
- * added (within the FSB's underlying memory block).
  *
- * @return 0 on succes, a negative value on failure.
+ * @return The offset (within this FSB's underlying memory) where the memory
+ * was added on succes, a negative value on failure.
  */
-int
-AU_FSB_Append(AU_FixedSizeBuilder *fsb,
-              void *mem,
-              size_t n,
-              size_t *out_offset);
+long
+AU_FSB_Append(AU_FixedSizeBuilder *fsb, const void *mem, long n);
 
 /**
  * Set aside memory for n elements with the given builder. Put the result
@@ -172,19 +162,16 @@ AU_FSB_Append(AU_FixedSizeBuilder *fsb,
  * @param fsb A pointer to a properly initialized fixed size buffer.
  * @param n How many elements to set aside. It can be 0, and if so this
  * operation will be basically a no-op.
- * @param out_addr Must be a non null void** telling where to put the address
- * which you can then use to set up the bytes. If n is 0, *out_addr is left
- * as it was.
- * @param out_offset If not null, this will be put the offset (in terms of
- * the element size for this FSB) of the first byte reserved for setup.
  *
- * @return 0 on succes, a negative value on failure.
+ * @return The memory for setup on success, or null on failure.
+ *
+ * @note To get the offset, if you're interested, all you need to do is
+ * subtract against the base memory address which you get with
+ * AU_FSB_GetMemory(fsb). You should cast the void* results to the appropriate
+ * types.
  */
-int
-AU_FSB_AppendForSetup(AU_FixedSizeBuilder *fsb,
-                      size_t n,
-                      void **out_addr,
-                      size_t *out_offset);
+void *
+AU_FSB_AppendForSetup(AU_FixedSizeBuilder *fsb, long n);
 
 /**
  * @param fsb A pointer to a properly initialized fixed size buffer.
@@ -216,7 +203,7 @@ AU_FSB_DiscardAppends(AU_FixedSizeBuilder *fsb);
  * elements.
  */
 void
-AU_FSB_DiscardLastAppends(AU_FixedSizeBuilder *fsb, size_t n);
+AU_FSB_DiscardLastAppends(AU_FixedSizeBuilder *fsb, long n);
 
 ///////////////////////////////
 //// Variable Size Builder ////
@@ -242,42 +229,29 @@ typedef AU_ByteBuilder AU_VarSizeBuilder;
  * @return 0 on success, negative on error.
  */
 int
-AU_VSB_Setup(AU_VarSizeBuilder *vsb, size_t cap);
+AU_VSB_Setup(AU_VarSizeBuilder *vsb, long cap);
 
 /**
  * @param vsb A pointer to a properly initialized VSB.
  * @param mem A pointer to the first byte of the memory region from which to
  * get bytes.
  * @param n How many bytes to take from the region. It can be 0.
- * @param out_offset If not null, it'll be used to output the offset of this
- * append (offset within this VSB's underlying memory in which this append is
- * taking place.
  *
- * @return 0 on success or negative on error.
+ * @return Offset off the base address on success, a negative value error code
+ * on failure.
  */
-int
-AU_VSB_Append(AU_VarSizeBuilder *vsb,
-              void *mem,
-              size_t n,
-              size_t *out_offset);
+long
+AU_VSB_Append(AU_VarSizeBuilder *vsb, const void *mem, long n);
 
 
 /**
  * @param vsb A pointer to a properly initialized VSB.
  * @param n How many bytes to set aside for setup.
- * @param out_addr Non null pointer to put the address of the first byte in
- * the memory you have for your own setup.
- * @param out_offset If not null, it'll be used to output the offset of this
- * append (offset within this VSB's underlying memory in which this append is
- * taking place.
  *
- * @return 0 on success or negative on error.
+ * @return The pointer to the memory for setup on succes. Null on failure.
  */
-int
-AU_VSB_AppendForSetup(AU_VarSizeBuilder *vsb,
-                      size_t n,
-                      void **out_addr,
-                      size_t *out_offset);
+void *
+AU_VSB_AppendForSetup(AU_VarSizeBuilder *vsb, long n);
 
 /**
  * Get the underlying memory for this builder.
@@ -292,5 +266,34 @@ AU_VSB_GetMemory(AU_VarSizeBuilder *vsb);
 void
 AU_VSB_DiscardAppends(AU_VarSizeBuilder *vsb);
 
-#endif
+/////////////////////////
+//// Stack Allocator ////
+/////////////////////////
 
+/**
+ * As with all other other builder/allocator types, the representation of an
+ * AU_StackAllocator shouldn't be relied upon (check the other comment in
+ * the beginning of this file).
+ *
+ * Functions on stack allocators have sizes and offsets specified in terms
+ * of bytes, just like a byte builder.
+ */
+typedef AU_VarSizeBuilder AU_StackAllocator;
+
+int
+AU_SA_Setup(AU_StackAllocator *sa, long cap);
+
+void *
+AU_SA_Alloc(AU_StackAllocator *sa, long n);
+
+void
+AU_SA_Free(AU_StackAllocator *sa, long n);
+
+void
+AU_SA_Destroy(AU_StackAllocator *sa);
+
+//////////////////////////////
+//// Fixed Size Allocator ////
+//////////////////////////////
+
+#endif
