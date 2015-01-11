@@ -1,8 +1,8 @@
 LIB_OUT=libAU.a
-OBJS=AU_Builders.o
-SRCS=AU_Builders.c
+OBJS=AU.o
+SRCS=AU.c
 
-CC_CMD=gcc -pipe -Wall -Wextra -Werror -Wconversion -pedantic -std=c99 -c -g3 \
+CC_CMD=gcc -pipe -Wall -Wextra -Werror -pedantic -std=c99 -c -g3 \
 	-O2
 
 .c.o:

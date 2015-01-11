@@ -3,46 +3,20 @@ Allocation Utilities
 This is a C library containing several utilities for dealing with dynamic
 memory allocation. It contains:
 
-  - Stack Allocator
   - Fixed Size Allocator
   - Byte Builder
   - Fixed Size Builder
   - Variable Size Builder
 
-Stack Allocators (SA)
-=====================
-A stack allocator is one in which you allocate heterogeneous (sized) blocks of
-memory as you go. Deallocation can be done by releasing the last N allocated
-blocks.
-
-A byte stack allocator is tailored to allocate/deallocate bytes. And as such
-byte alignment will be used. By default, a stack allocator will be very
-conservative about the alignment to use.
-
-A bounded stack allocator works with given memory instead of trying to allocate
-its own through malloc/realloc calls. There are bounded byte stack allocators
-as well, which are for when you want byte alignment and bounded stack
-allocation.
-
-When you give the bounded stack allocator memory for it to work on, it'll
-assume the memory is aligned. To help you with that, check AU_Align and
-AU_SizeAlign.
-
-If you're interested in a fixed size stack allocator, check the fixed size
-builder. It can be used as such.
-
 Fixed Size Allocators (FSA)
 ===========================
-The stack allocators and the builders (mentioned later) don't deal with
-fragmentation of the address space they're using. A fixed size allocator does.
+The builders (mentioned later) don't deal with fragmentation of the address
+space they're using. A fixed size allocator does.
 
 A fixed size allocator doesn't allow for heterogeneous sized allocations. All
 allocations have to be of the same size. What distinguises a FSA from the
 others is that *any* allocated block can be freed. Not just the last N bytes,
-or last N blocks, or the whole thing.
-
-As with other allocators, there is a bounded version of it. This library
-doesn't attempt to provide a fixed syze byte allocator.
+or just last N blocks, or only the whole thing at once.
 
 Builders
 ========
@@ -220,32 +194,10 @@ Names
 All names are prefixed with AU (allocation utilities). Names for operations on
 particular kinds of allocators have yet another prefix.
 
-  AU_SA_Setup
-  AU_SA_Alloc
-  AU_SA_Free
-  AU_SA_Destroy
-
-  AU_SA1_Setup
-  AU_SA1_Alloc
-  AU_SA1_Free
-  AU_SA1_Destroy
-
-  AU_BSA_Setup
-  AU_BSA_Alloc
-  AU_BSA_Free
-
-  AU_BSA1_Setup
-  AU_BSA1_Alloc
-  AU_BSA1_Free
-
   AU_FSA_Setup
   AU_FSA_Alloc
   AU_FSA_Free
   AU_FSA_Destroy
-
-  AU_BFSA_Setup
-  AU_BFSA_Alloc
-  AU_BFSA_Free
 
   AU_B1_Setup
   AU_B1_Append
