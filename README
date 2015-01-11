@@ -18,17 +18,27 @@ allocations have to be of the same size. What distinguises a FSA from the
 others is that *any* allocated block can be freed. Not just the last N bytes,
 or just last N blocks, or only the whole thing at once.
 
-Builders
-========
+The pattern of usage is:
+
+  - Make a new FSA telling the element byte size, and how many elements you'd
+  like it to reserve upfront.
+  - Allocate and free eleemnts.
+  - Destroy the allocator.
+
+Contrary to builders, an allocator won't invalidate pointers.
+
+Builders - Motivation
+=====================
 There are cases in which you want to build something which you're not aware of
 the size. For example, imagine you're reading a file and you want to build a
 sequence of lines. Some files can have extremely large lines (imagine an html
 source file, or a minified JS source file), while in others lines are pretty
 much bounded to a fixed upper limit (this file for example). It'd be
-interesting if you could use something like fgets to read as much N chars and
-incrementally build the line:
+interesting if you could use something like fgets to read as much as N chars
+and incrementally build the line:
 
   LineBuilder l;
+  LineSeqBuilder lsb;
   char buf[80];
   setup l
   open l for append
@@ -38,55 +48,64 @@ incrementally build the line:
   } while (not end of line);
   close l
   char *line = chars(l);
+  append line to lsb
   ...
   ...
   ...
-  free(l);
+  free the storage for the lines
+  free the storage for the line sequence
 
 That's the idea behind builder types.
 
-There are byte builders and fixed size builders. Given a builder, basically
-these are the operations you can do to it:
+Builders - Overall
+==================
+Given a builder, basically these are the operations you can do to it:
 
   - Setup
   - Append
   - AppendForSetup
   - GetMemory
   - DiscardAppends
+  - GetUsedCount
 
 Once you set asside some memory for the builder (a local variable for example),
 you have to call Setup on it.
 
-After setting up a builder, it's  appendable. Now you can make append calls
-copy elements into it. There are two kinds of append calls. A simple Append
+After setting up a builder, it's  appendable. Now you can make append calls to
+put elements into it. There are two kinds of append calls. A simple Append
 call will take some bytes and copy them into the underlying builder storage.
 However, in some cases, you'll need to do your own setup on the underlying
 memory (a simple copy won't do). In such cases, call AppendForSetup. Such call
 will return you the underlying store for the appended element(s) so you can do
 your own setup on them.
 
-The thing to be cautious about with AppendForSetup is that at each append, the
-base address of the underlying memory for the builder may change (very much
-like with calls to realloc), and you should take that into account while coding
-your own programs using builder types.
+The thing to be cautious about with AppendForSetup is that at each append (no
+matter which), the base address of the underlying memory for the builder may
+change (very much like with calls to realloc), and you should take that into
+account while coding your own programs using builder types.
 
   - Append: get some elements, copy them into the underlying store, expanding
   it if needed.
   - AppendForSetup: get a size value, adjust the underlying store to fit the
-  given amount of bytes, expanding if needed, and return the underlying store
-  so you can work on it. No copy is done.
+  given size (expanding if needed), and return the address pointing to the
+  newly reserved area for the requested elements. There is no copying involved.
 
 Once you're done appending elements, you can confidently get the underlying
 memory and use however you'd like. To do so, make a GetMemory call. You can
 still make append calls after getting the underlying memory. This is useful if
 you want to increment the build later. All you need to remember is that the
 address you had for the base address can be invalidated at each append call,
-which means you'll have to call GetMemory again at each "append session".
+which means you'll have to call GetMemory again after each "append session".
+
+Setting up elements to be added into a builder that depends on the builder's
+underlying memory's base addres is also recipe for disaster. Consider using
+an integer offset from its beginning.
 
 The builder won't free the underlying memory for you. You're the one
-responsible for calling free on the underlying memory. After you're fully done
-with appends you can actually get rid of the builder and only keep the
-underlying base address.
+responsible for calling free on the underlying memory. To do that, you'll call
+free on the builder's underlying memory. This allows for you passing the
+address for something else to free, and this something can do so even without
+knowledge of how builders work.
 
 You can also recycle the builder. There are two ways you can do that.
 
@@ -97,10 +116,11 @@ reuse all the space previously allocated for the older appends.
 Another way is by simply getting the underlying base pointer and store it
 somewhere else and calling setup on the buffer again. A call to setup will
 assume the builder fields are uninitialized and will give you a fresh setup for
-the builder without interfering with the older underlying memory.
+the builder without interfering with the older underlying memory. You should
+still free the old memory once you're done with it.
 
-This library makes no attempt to make bounded builders. There are though:
-
+Builder Types
+=============
   - Byte Builders
   - Fixed Size Builders
   - Variable Size Builders
@@ -119,35 +139,36 @@ will do byte alignment. This makes a VSB a poor choice for small elements in
 terms of memory consumption. For example, if VSB uses 16 byte alignment, and
 you need to add a bunch of shorts, ints and longs to it, you'd be using at
 most half the memory, assuming longs are 8 bytes. A VSB is a better choice for
-when you have larger objects.
+when you have larger objects or when you can allocate several of them at each
+append call.
 
 One case for using VSB could be that you have to build a structure which puts
-together time (struct tm) objects, and texts based off what you read from your
-input source:
+together time objects (struct tm), and texts based off what you read from your
+input source. You'd need space for:
 
-  - You would need space for struct tm objects.
-  - You would need space for text strings.
-  - You would need space for the struct binding the date/text pair.
+  - several struct tm
+  - several char
+  - several structs which bind the date/text pair
 
-This could be a good situation to use a VSB. However, VSB don't work well with
+This could be a good situation to use a VSB. However, VSBs don't work well with
 incrementally building text. If you plan to incrementally build strings using a
 VSB, you're out of luck because your strings will almost certainly have gaps
 (possibly containing a zero byte in there) between them. This is because of the
-conservative alignment assumptions VSB has to work with.
+conservative alignment assumptions VSB works with.
 
-So the example above is only reliable if you can avoid incrementally building
-the string.
-
-The alignment choices made by VSB are hardcoded internally in the library. If
-you want different alignment options, you would need to build your own builder
-on top of a byte builder.
+So the example above is only representative if you can avoid incrementally
+building the string.
 
 The thing to remember about VSB is how consecutive appends may leave gaps in
-the underlying memory block. The gaps are pretty small if you have large
-structs, but they can still be significant in other cases.
+the underlying memory block.
 
-The computation of which is the alignment size to be used is done by looking
-at sizes of fundamental types in the language:
+You can tell VSB which alignment boundary to use. You can pass in 0, or through
+a constant AU_ALIGN_CONSERVATIVE, to tell the VSB setup to make conservative
+alignment boundary.
+
+The computation of what is the conservative alignment boundary is done by
+looking at sizes of fundamental types in the language put together inside a
+union:
 
   union AlignmentType {
     int i;
@@ -172,22 +193,62 @@ used internally by the library to figure out the alignment boundary a VSB will
 use. This idea came from the "C Interfaces and Implementations" book, which
 suggest something similar.
 
-Byte Allocators
-===============
-There are allocators above that operate on a byte level, like a byte stack
-allocator. These allocators aren't meant to be general purpose memory
-allocators (although you can make them be so if you're willing to go through
-the effort). Their intended usage is for byte strings.
+Stricly speaking, this is merely a "best effort" approach. If you know you
+can do better, just pass in the alignment boundary to the VSB setup function.
 
+Byte Builders
+=============
 Since they operate on a byte level, they don't worry about alignment issues
 narely as much as the other kinds of allocators.
 
 Malloc Configuration and Errors
 ===============================
-You can configure which malloc/free/calloc/realloc to use in the XMalloc.h
-file.
+You can configure which malloc/free/realloc to use in the AUConf.h file. To do
+so, simply replace to what the symbols xmalloc, xfree, xcalloc and xrealloc
+expands to.
 
-!!! TALK ABOUT ERRORS !!!
+When you allocate memory you're interested in knowing if the call succeeded or
+not. If not, it's generally the case that you don't look at the cause of the
+error and handle it somehow. For example, there are three reasons as to why
+allocator/builder can fail:
+
+  - A call to realloc failed.
+  - A call to malloc failed.
+  - There was an integer overflow error.
+
+You may want to log that error for example, but it's not generally the case
+that you can handle this and proceed. If you want to handle the different cases
+for which memory allocation can fail, this library will give you a hard time
+because its error handling scheme is built on top of the assumption that when
+memory allocation fails, you're more interesting in handling the failure
+generically than specifically (i.e. looking at the specific cause).
+
+This translates in API design the following way:
+
+  - If returning a precise error code doesn't make the API inconvenient to
+  use, then it'll be returned (e.g. Setup calls, and Append calls).
+  - If it does make the API inconvenient (e.g. AppenForSetup had output
+  parameters), then it'll simply indicate failure or success through the
+  return value.
+
+However, in all the cases in which errors happen (e.g. there is an overflow
+error, or malloc fails), there is another way in which errors are issued.
+
+In AUConf.h, you can configure a code to inject into the library at build
+time (macro xerror). This macro will be used whenever an error happens. By
+default, the macro expands to a call to fprintf, logging the error. But you
+can go as elaborate as you'd like. For example, it could expand to an indirect
+function call through a function pointer which got set up prior to the
+allocation call.
+
+It's another issue if you're willing to go through this hassle to handle
+allocation errors.
+
+Of course you could go overboard with the xerror macro and make it expand
+to something which will cause the library to behave incorrectly. The only
+advice I can give you on that is: don't do it. The programmers using the
+library build you've "cracked" are the only people to be harmed out of that,
+and it is very likely that you'll be one of them.
 
 Names
 =====
@@ -219,11 +280,6 @@ particular kinds of allocators have yet another prefix.
   AU_FSB_DiscardAppends
   AU_FSB_DiscardLastAppends
 
-A difference between bounded allocators and unbounded ones surfaces here. There
-aren't procedures to destroy a bounded allocator. This is because a bounded
-allocator will operate entirely within its given memory. On its own, this is
-enough for not needing a destruction procedure here.
-
 To be clear, procedures 'free' release memory that is managed by the allocator.
 Procedures 'destroy' destroy the allocator. If you've allocated the allocator
 with a call to malloc on your own then you should of course free it yourself.
@@ -232,12 +288,12 @@ themselves.
 
 Opaqueness
 ==========
-Allocatores aren't opaque types strictly speaking. You *do* have access to the
-struct declaration. However, you're not supposed to access the fields diretly.
-Every allocator manipulation should be done through a function call or macro
-application.
+Allocatores and builders aren't opaque types strictly speaking. You will have
+access to the struct declaration. However, you're not supposed to access the
+fields diretly. Every allocator manipulation should be done through a function
+call or macro application.
 
-The reason why the types aren't fully opaque types is just so you can declare
+The reason why the types aren't fully opaque is just so you can declare
 variables of allocator types with automatic and also with static storage
 duration.
 
@@ -246,18 +302,19 @@ are only so indirectly through typedefs.
 
 Thread Safety and Reentrancy
 ============================
-If the provided malloc/free/calloc/realloc aren't thread safe, two concurrent
-AU_* calls won't be data race free. However, if thread safety is provided in
-the underlying malloc/.../ralloc functions, then you can call this library's
+If the provided malloc/free/realloc aren't thread safe, two concurrent AU_*
+calls won't be data race free. However, if thread safety is provided in the
+underlying malloc/.../ralloc functions, then you can call this library's
 functions on different instances (which is what would be intuitively expected
 in my opinion).
 
-Reentrancy only depends on the reentrancy of the provided allocation functions.
+As of now, there isn't much an attempt to make the functions reentrant.
 
 Errors Values
 =============
-Throughout the library, functions which can error return negative values on
-error conditions and 0 on success.
+Throughout the library, functions can return integers which indicate errors on
+negative values, or 0 on success. For functions which return pointers, null
+pointers indicate failure and non null pointers indicate success.
 
 Debug Options
 =============
@@ -266,14 +323,16 @@ They will check for:
 
   - null parameters
   - overflow
+  - relationships among variables that must hold
 
 When they're turned off, several properties will just be assumed to be true.
 For example, that you won't pass null parameters or that you won't pass two
-numbers that need to be multiplied and will overflow if done so.
+numbers that need to be multiplied and will overflow if done so (.e.g element
+size and initial capacity to a FSB).
 
 Some sizes are outside of your control, so you can't and won't be held
 responsible for checking overflow on those values. For example, when appending
 bytes on a byte builder, you don't have access to the underlying capacity. So
-you don't know if adding it to the size for a next append will overflow or
-not. Thus, in this case (and others like it), the library will return an error
-code.
+you don't know extending the capacity to accomodate the new size will overflow
+or not. Thus, in this case (and others like it), the library will issue an
+error (assertions won't be used in this case).

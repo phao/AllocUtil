@@ -33,7 +33,8 @@ static inline size_t
 AlignSize(size_t n, size_t boundary) {
   assert(boundary > 1);
   assert(n <= SIZE_MAX - boundary + 1);
-  return (n + boundary - 1)/boundary * boundary;
+  assert(n > 0);
+  return ((n - 1) + boundary)/boundary * boundary;
 }
 
 #define PTR_SIZE_ALIGN AlignSize(sizeof (void*), ALIGNMENT_BOUNDARY)
@@ -279,10 +280,6 @@ size_t
 AU_VSB_GetUsedCount(AU_VarSizeBuilder *vsb) {
   return AU_B1_GetUsedCount(&vsb->b1);
 }
-
-/////////////////////////
-//// Stack Allocator ////
-/////////////////////////
 
 //////////////////////////////
 //// Fixed Size Allocator ////

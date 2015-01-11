@@ -24,7 +24,7 @@ enum {
 };
 
 enum {
-  AU_ALIGN_CONSERVATIVE = 0L
+  AU_ALIGN_CONSERVATIVE = 0
 };
 
 //////////////////////

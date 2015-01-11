@@ -7,7 +7,7 @@
 #define xmalloc malloc
 #define xfree free
 #define xrealloc realloc
-#define xcalloc calloc
+
 #define xerror(err_code, err_name) \
   fprintf(stderr, "AU_Error: %d: %s\n", (err_code), (err_name))
 
